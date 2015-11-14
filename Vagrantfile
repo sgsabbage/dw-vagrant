@@ -4,8 +4,6 @@
 HOST_NAME = "dreamwidth-dev"
 Vagrant.configure(2) do |config|
 
-  config.vm.synced_folder "opt", "/opt", type: "nfs", create: true
-
   # Every Vagrant development environment requires a box. You can search for
   # boxes at https://atlas.hashicorp.com/search.
   config.vm.box = "ubuntu/trusty64"

@@ -37,18 +37,14 @@
   become_user: dw
   lineinfile: dest=~dw/.profile state=present line="export LJHOME={{ lj_home }}"
 
-- name: Check if dw-free repository exists
-  stat: path={{ lj_home }}
-  register: f
-
 - name: Clone dw-free from user's fork
-  when: not f.stat.exists
   become: yes
   become_user: dw
-  command: chdir=/opt git clone https://{{ gh_user }}@github.com/{{ gh_user }}/dw-free.git dw
+  git: repo=https://{{ gh_user }}@github.com/{{ gh_user }}/dw-free.git dest={{ lj_home }} update=no
+  register: dwfreegit_result
 
 - name: Set up dreamwidth as remote for dw-free
-  when: not f.stat.exists
+  when: dwfreegit_result.changed
   become: yes
   become_user: dw
   command: chdir={{ lj_home }} {{ item }}
@@ -58,18 +54,14 @@
       - git branch -u dreamwidth/develop develop
       - git pull
 
-- name: Check if dw-nonfree exists
-  stat: path={{ lj_home }}/ext/dw-nonfree
-  register: nf
-
 - name: Clone dw-nonfree from user's fork
-  when: not nf.stat.exists
   become: yes
   become_user: dw
-  command: chdir={{ lj_home }}/ext git clone https://{{ gh_user }}@github.com/{{ gh_user }}/dw-nonfree.git
+  git: repo=https://{{ gh_user }}@github.com/{{ gh_user }}/dw-nonfree.git dest={{ lj_home }}/ext/dw-nonfree update=no
+  register: dwnonfreegit_result
 
 - name: Set up dreamwidth as remote for dw-nonfree
-  when: not nf.stat.exists
+  when: dwnonfreegit_result.changed
   become: yes
   become_user: dw
   command: chdir={{ lj_home }}/ext/dw-nonfree {{ item }}
