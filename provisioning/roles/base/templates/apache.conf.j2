@@ -1,0 +1,25 @@
+ServerName localhost
+
+User dw
+Group dw
+
+PerlSetEnv  LJHOME {{ lj_home }}
+PerlPassEnv LJHOME
+
+PerlRequire {{ lj_home }}/cgi-bin/modperl.pl
+
+StartServers 1
+
+<VirtualHost *:80>
+	ServerAdmin dw@localhost
+	DocumentRoot {{ lj_home }}/htdocs
+	UseCanonicalName off
+	ErrorLog {{ lj_home }}/logs/error.log
+	CustomLog {{ lj_home }}/logs/access.log combined
+</VirtualHost>
+
+<Directory {{ lj_home }}/>
+	   Options FollowSymLinks
+	   AllowOverride None
+	   Require all granted
+</Directory>

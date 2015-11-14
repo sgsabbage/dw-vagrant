@@ -1,0 +1,173 @@
+---
+- name: Loading user variables
+  include_vars: user_vars.yml
+
+- name: Upgrade all packages
+  become: yes
+  apt: update-cache=yes upgrade=yes
+
+- name: Install all required packages
+  become: yes
+  apt: name={{ item }} state=present
+  with_items: "{{ dw_packages }}"
+
+- name: Install CPAN packages
+  become: yes
+  command: cpanm {{ item }}
+  with_items: "{{ dw_cpan }}"
+  register: cpan_result
+  changed_when: "'is up to date' not in cpan_result.stdout"
+
+- name: Install pip packages
+  become: yes
+  pip: name={{ item }}
+  with_items: "{{ dw_pip }}"
+
+- name: Install gems
+  become: yes
+  gem: user_install=no name={{ item.name }} version={{ item.version }}
+  with_items: "{{ dw_gem }}"
+
+- name: Create DW user
+  become: yes
+  user: name=dw groups=sudo shell=/bin/bash
+
+- name: Set LJHOME
+  become: yes
+  become_user: dw
+  lineinfile: dest=~dw/.profile state=present line="export LJHOME={{ lj_home }}"
+
+- name: Check if dw-free repository exists
+  stat: path={{ lj_home }}
+  register: f
+
+- name: Clone dw-free from user's fork
+  when: not f.stat.exists
+  become: yes
+  become_user: dw
+  command: chdir=/opt git clone https://{{ gh_user }}@github.com/{{ gh_user }}/dw-free.git dw
+
+- name: Set up dreamwidth as remote for dw-free
+  when: not f.stat.exists
+  become: yes
+  become_user: dw
+  command: chdir={{ lj_home }} {{ item }}
+  with_items:
+      - git remote add dreamwidth https://github.com/dreamwidth/dw-free
+      - git fetch dreamwidth
+      - git branch -u dreamwidth/develop develop
+      - git pull
+
+- name: Check if dw-nonfree exists
+  stat: path={{ lj_home }}/ext/dw-nonfree
+  register: nf
+
+- name: Clone dw-nonfree from user's fork
+  when: not nf.stat.exists
+  become: yes
+  become_user: dw
+  command: chdir={{ lj_home }}/ext git clone https://{{ gh_user }}@github.com/{{ gh_user }}/dw-nonfree.git
+
+- name: Set up dreamwidth as remote for dw-nonfree
+  when: not nf.stat.exists
+  become: yes
+  become_user: dw
+  command: chdir={{ lj_home }}/ext/dw-nonfree {{ item }}
+  with_items:
+      - git remote add dreamwidth https://github.com/dreamwidth/dw-nonfree
+      - git fetch dreamwidth
+      - git branch -u dreamwidth/develop develop
+      - git pull
+
+- name: Create DW MySQL database
+  mysql_db: name=dw
+  register: db_result
+
+- name: Create Schwartz MySQL database
+  mysql_db: name=dw_schwartz
+  notify: Provision Schwartz database
+  register: schwartz_result
+
+- name: Create DW MySQL user
+  mysql_user: name=dw priv=dw.*:ALL/dw_schwartz.*:ALL password={{ mysql_password }}
+  become: yes
+  become_user: root
+
+- name: Create config directory
+  file: path={{ lj_home }}/ext/local/etc state=directory
+
+- name: Put dirscope in place
+  copy: src=dir_scope dest={{ lj_home }}/ext/local/.dir_scope
+
+- name: Install local config
+  template: src=config-local.pl.j2 dest={{ lj_home }}/ext/local/etc/config-local.pl
+
+- name: Install private config
+  template: src=config-private.pl.j2 dest={{ lj_home }}/ext/local/etc/config-private.pl
+
+- name: Provision main DW database
+  become: yes
+  become_user: dw
+  when: db_result.changed
+  command: chdir={{ lj_home }} bin/upgrading/update-db.pl {{ item }}
+  with_items:
+    - "-r --innodb"
+    - "-r --innodb" # This runs twice
+    - "-r --cluster=all --innodb"
+    - "-p"
+
+- name: Provision Schwartz database
+  become: yes
+  when: schwartz_result.changed
+  mysql_db: name=dw_schwartz state=import target=/usr/share/doc/libtheschwartz-perl/schema.sql
+
+- name: Set system password
+  become: yes
+  become_user: dw
+  when: db_result.changed
+  expect:
+    chdir: "{{ lj_home }}"
+    command: bin/upgrading/make_system.pl
+    responses:
+      account: "{{ system_password }}"
+
+- name: Load translation strings
+  become: yes
+  become_user: dw
+  command: chdir="{{ lj_home }}" bin/upgrading/texttool.pl load
+
+- name: Compile stylesheets for dw-free
+  become: yes
+  become_user: dw
+  command: chdir={{ lj_home }} compass compile
+
+- name: Compile stylesheets for dw-nonfree
+  become: yes
+  become_user: dw
+  command: chdir={{ lj_home }}/ext/dw-nonfree compass compile
+
+- name: Disable default site
+  become: yes
+  command: a2dissite 000-default
+  register: site_result
+  changed_when: "'already disabled' not in site_result.stdout"
+  notify: Restart Apache
+
+- name: Enable Perl Request module
+  become: yes
+  command: a2enmod apreq2
+  register: apreq_result
+  changed_when: "'already enabled' not in apreq_result.stdout"
+  notify: Restart Apache
+
+- name: Copy apache config
+  become: yes
+  template: src=apache.conf.j2 dest=/etc/apache2/sites-available/dw.conf
+  notify: Restart Apache
+
+- name: Enable DW site
+  become: yes
+  command: a2ensite dw
+  register: dwen_result
+  changed_when: "'already enabled' not in dwen_result.stdout"
+  notify: Restart Apache
