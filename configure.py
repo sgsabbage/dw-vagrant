@@ -29,7 +29,7 @@ def random_password():
         password = password + random.choice(chars)
     return password
 
-with open("ansible/user_vars.yml", 'r') as stream:
+with open("provisioning/user_vars.yml", 'r') as stream:
     config = yaml.load(stream)
     stream.close()
 
@@ -48,5 +48,5 @@ if 'system_password' not in config:
 print('System password is ' + config['system_password'])
 
 
-with open("ansible/user_vars.yml", 'w') as f:
+with open("provisioning/user_vars.yml", 'w') as f:
     f.write(yaml.dump(config, default_flow_style=False))
